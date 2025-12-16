@@ -4,20 +4,17 @@ import pandas as pd
 from tensorflow.keras.models import load_model
 import matplotlib.pyplot as plt
 import os
+from scipy.signal import butter, filtfilt
 from eeg_info import show_eeg_info
 from tutorial import show_tutorial
 
-# =========================
-# CONFIG
-# =========================
+# Konfigurasi halaman Streamlit
 st.set_page_config(
     page_title="EEG Eye State Classification",
     layout="centered"
 )
 
-# =========================
-# PAGE STYLING
-# =========================
+# Custom styling untuk tampilan yang lebih menarik
 st.markdown(
     """
     <style>
@@ -60,14 +57,12 @@ st.markdown(
     
 )
 
-# Display Image
+# Tampilkan logo/gambar header aplikasi
 st.image("images/image.png", width='content')
 
 st.markdown("<p style='text-align: center'>Aplikasi untuk mengklasifikasikan kondisi mata (Terbuka/Tertutup) berdasarkan data Electroencephalography.<br><small>Model dilatih menggunakan dataset dari <a href='https://www.kaggle.com/datasets/robikscube/eye-state-classification-eeg-dataset/data' target='_blank'>Kaggle</a> dengan device Emotiv Epoc (14 channel EEG).</small></p>", unsafe_allow_html=True)
 
-# =========================
-# TABS
-# =========================
+# Buat 3 tab utama untuk navigasi aplikasi
 tab1, tab2, tab3 = st.tabs(["Klasifikasi", "Tutorial Penggunaan", "Informasi tentang EEG"])
 
 with tab3:
@@ -77,9 +72,7 @@ with tab2:
     show_tutorial()
 
 with tab1:
-    # =========================
-    # MODEL SELECTION
-    # =========================
+    # User memilih model mana yang ingin digunakan
     st.subheader("Pilih Model")
 
     model_choice = st.selectbox(
@@ -94,26 +87,21 @@ with tab1:
 
     MODEL_TYPE, MODEL_PATH = MODEL_MAP[model_choice]
 
-    # =========================
-    # MODEL EXPLANATION
-    # =========================
+    # Tampilkan penjelasan singkat tentang model pilihan
     if model_choice == "LSTM":
         st.info("LSTM (Long Short-Term Memory) adalah model yang baik untuk data sekuensial seperti time series EEG. Model ini mampu mengingat pola jangka panjang dan cocok untuk menangkap sinyal otak yang kompleks.")
     elif model_choice == "CNN":
         st.info("CNN (Convolutional Neural Network) adalah model yang fokus pada fitur lokal dalam data EEG. Model ini cepat dalam pemrosesan dan computationally efficient, serta cocok untuk mendeteksi pola spasial dan temporal.")
 
-    # =========================
-    # LOAD MODEL
-    # =========================
+    # Load model yang sudah dilatih dari file H5
     @st.cache_resource
     def load_selected_model(path):
-        """Memuat model Keras/TensorFlow dan menangani error jika file tidak ditemukan."""
+        """Muat model dari file, dengan error handling jika file tidak ada atau rusak"""
         if not os.path.exists(path):
             st.error(f"❌ File model tidak ditemukan")
             return None
         try:
-            # Menambahkan custom_objects jika ada lapisan khusus, misalnya Lambda
-            # Tetapi untuk LSTM, CNN, Dense biasa, ini tidak diperlukan.
+            # Load model biasa, tidak perlu custom objects untuk LSTM/CNN standar
             return load_model(path)
         except Exception as e:
             st.error(f"❌ Gagal memuat model {path}. Mungkin ada ketidaksesuaian versi atau arsitektur. Error: {e}")
@@ -121,54 +109,68 @@ with tab1:
 
     model = load_selected_model(MODEL_PATH)
 
-    # =========================
-    # PREPROCESS FUNCTION
-    # =========================
-    def preprocess_eeg(data, model_type, target_len=128, target_ch=14):
+    # Bandpass filter untuk preprocessing EEG
+    def bandpass_filter(data, lowcut=0.5, highcut=45.0, fs=128, order=5):
+        """Terapkan bandpass filter pada sinyal dengan padlen yang aman"""
+        nyquist = 0.5 * fs
+        low = lowcut / nyquist
+        high = highcut / nyquist
+        b, a = butter(order, [low, high], btype="band")
+        # Gunakan padlen yang fleksibel sesuai panjang data
+        padlen = min(len(data) - 1, 33)
+        if padlen < 1:
+            padlen = 1
+        return filtfilt(b, a, data, padlen=padlen)
+
+    # Fungsi untuk siapkan data EEG agar bisa diprediksi
+    def preprocess_eeg(data, model_type, target_len=128, target_ch=14, fs=128):
         """
-        Preprocessing data EEG menjadi bentuk yang sesuai untuk inference model.
-        target_len: panjang waktu (timesteps) yang diharapkan (default 128)
-        target_ch: jumlah channel yang diharapkan (default 14)
+        Siapkan data EEG menjadi format yang sesuai untuk model.
+        - target_len: jumlah timesteps yang diinginkan (default 128)
+        - target_ch: jumlah channel yang diinginkan (default 14)
+        - fs: sampling rate (default 128 Hz)
         """
 
         data = np.asarray(data, dtype=np.float32)
 
-        # Pastikan 2D (waktu x channel)
+        # Harus bentuk 2D (baris=waktu, kolom=channel)
         if data.ndim != 2:
             raise ValueError("CSV harus berbentuk tabel (2D).")
 
-        # Anggap BARIS = waktu, jika jumlah baris lebih kecil dari kolom, transpos
+        # Jika baris lebih sedikit dari kolom, anggap perlu di-transpose
         if data.shape[0] < data.shape[1]:
-            data = data.T # Sekarang bentuk: (Timesteps, Channels)
+            data = data.T
 
-        # ===== CHANNEL HANDLING (Pad/Cut Channels) =====
+        # Handle jumlah timesteps DULU - padding jika kurang supaya filter bisa bekerja
+        if data.shape[0] < target_len:
+            pad_t = target_len - data.shape[0]
+            data = np.pad(data, ((0, pad_t), (0, 0)))
+
+        # Handle jumlah channel - potong atau padding sesuai kebutuhan
         if data.shape[1] >= target_ch:
-            # Ambil hanya sejumlah channel yang diperlukan
             data = data[:, :target_ch]
         else:
-            # Tambahkan padding channel jika kurang
             pad_ch = target_ch - data.shape[1]
             data = np.pad(data, ((0, 0), (0, pad_ch)))
 
-        # ===== TIME HANDLING (Pad/Cut Timesteps) =====
-        if data.shape[0] >= target_len:
-            # Ambil hanya sejumlah timesteps yang diperlukan
-            data = data[:target_len, :]
-        else:
-            # Tambahkan padding waktu jika kurang
-            pad_t = target_len - data.shape[0]
-            data = np.pad(data, ((0, pad_t), (0, 0)))
-        
-        # Normalisasi (penting jika model Anda dilatih dengan data ternormalisasi)
-        # data = (data - np.mean(data, axis=0)) / (np.std(data, axis=0) + 1e-6)
+        # Terapkan bandpass filter pada setiap channel SETELAH data sudah cukup panjang
+        for ch in range(data.shape[1]):
+            data[:, ch] = bandpass_filter(
+                data[:, ch],
+                lowcut=0.5,
+                highcut=45,
+                fs=fs,
+                order=5
+            )
 
-        # ===== FINAL SHAPE (BATCH SIZE = 1) =====
-        # Bentuk untuk LSTM/CNN 3D: (Batch, Timesteps, Channels) -> (1, 128, 14)
+        # Potong ke target_len jika data lebih panjang
+        if data.shape[0] > target_len:
+            data = data[:target_len, :]
+
+        # Reshape ke bentuk (1, 128, 14) - 1 batch, 128 timesteps, 14 channels
         return data.reshape(1, target_len, target_ch)
 
-    # =========================
-    # CSV INPUT
-    # =========================
+    # Section untuk input data (upload atau manual)
     st.subheader("Input Data EEG")
     
     input_method = st.radio(
@@ -193,7 +195,7 @@ with tab1:
         ```
         """)
 
-        # Sample Data Expander
+        # Ekspander dengan contoh data untuk user
         with st.expander("📋 Sample Data EEG (Klik untuk melihat contoh data yang bisa di-copy)"):
             st.markdown("""
             **Berikut adalah contoh data EEG yang bisa Anda gunakan untuk testing:**
@@ -214,50 +216,57 @@ with tab1:
             placeholder="1.2,3.4,5.6,7.8,9.0,1.1,2.2,3.3,4.4,5.5,6.6,7.7,8.8,9.9\n2.1,4.3,6.5,8.7,0.9,2.1,3.2,4.3,5.4,6.5,7.6,8.7,9.8,0.1\n..."
         )
         
-        if text_input.strip():
-            try:
-                # Parse text input
-                lines = [line.strip() for line in text_input.split('\n') if line.strip()]
-                data_rows = []
-                
-                for line in lines:
-                    # Split by comma and convert to float
-                    values = [float(x.strip()) for x in line.split(',') if x.strip()]
-                    if values:  # Only add non-empty rows
-                        data_rows.append(values)
-                
-                if data_rows:
-                    # Create DataFrame with appropriate column names
-                    max_cols = max(len(row) for row in data_rows)
-                    columns = [f'CH{i+1}' for i in range(max_cols)]
+        # Button untuk memproses data
+        if st.button("Proses Data"):
+            if text_input.strip():
+                try:
+                    # Parse setiap baris teks menjadi list angka
+                    lines = [line.strip() for line in text_input.split('\n') if line.strip()]
+                    data_rows = []
                     
-                    # Pad shorter rows with NaN
-                    for row in data_rows:
-                        while len(row) < max_cols:
-                            row.append(np.nan)
+                    for line in lines:
+                        # Pisahkan dengan koma dan konversi ke float
+                        values = [float(x.strip()) for x in line.split(',') if x.strip()]
+                        if values:
+                            data_rows.append(values)
                     
-                    df = pd.DataFrame(data_rows, columns=columns)
-                    st.success(f"✅ Data berhasil diparse: {len(data_rows)} timesteps × {max_cols} channels")
-                else:
-                    st.warning("⚠️ Tidak ada data yang valid ditemukan")
-                    
-            except ValueError as e:
-                st.error(f"❌ Error parsing data: {e}")
-                st.info("Pastikan semua nilai adalah angka dan dipisahkan dengan koma")
+                    if data_rows:
+                        # Buat DataFrame dengan nama kolom
+                        max_cols = max(len(row) for row in data_rows)
+                        columns = [f'CH{i+1}' for i in range(max_cols)]
+                        
+                        # Isi baris yang kurang kolom dengan NaN
+                        for row in data_rows:
+                            while len(row) < max_cols:
+                                row.append(np.nan)
+                        
+                        df = pd.DataFrame(data_rows, columns=columns)
+                        st.session_state.text_df = df
+                        st.success(f"✅ Data berhasil diparse: {len(data_rows)} timesteps × {max_cols} channels")
+                    else:
+                        st.warning("⚠️ Tidak ada data yang valid ditemukan")
+                        
+                except ValueError as e:
+                    st.error(f"❌ Error parsing data: {e}")
+                    st.info("Pastikan semua nilai adalah angka dan dipisahkan dengan koma")
+            else:
+                st.warning("⚠️ Silakan masukkan data terlebih dahulu")
 
-    # =========================
-    # PREDICTION
-    # =========================
+    # Ambil data dari session state jika ada
+    if "text_df" in st.session_state:
+        df = st.session_state.text_df
+    else:
+        df = None
+
+    # Jalankan prediksi jika sudah ada data dan model berhasil dimuat
     if df is not None and model is not None:
 
         st.write("Preview Data (14 Channel, 128 Timesteps)")
-        # Batasi preview untuk 128 baris pertama (jika lebih panjang) dan 14 kolom pertama
+        # Tampilkan preview data (max 128 baris, 14 kolom)
         preview_df = df.iloc[:128, :14]
         st.dataframe(preview_df)
 
-        # =========================
-        # EEG SIGNAL VISUALIZATION
-        # =========================
+        # Visualisasi semua channel EEG sebagai line plot
         st.subheader("Visualisasi Sinyal EEG")
         fig, ax = plt.subplots(figsize=(12, 6))
         
@@ -277,34 +286,29 @@ with tab1:
             st.markdown("---")
             
             try:
-                # 1. Preprocessing Data
+                # Siapkan data EEG untuk model
                 X_input = preprocess_eeg(df.values, MODEL_TYPE)
 
-                # 2. Prediction
+                # Jalankan prediksi
                 prediction = model.predict(X_input)
 
-                # =========================
-                # OUTPUT HANDLING
-                # =========================
+                # Decode hasil prediksi
                 labels = ["Eye Closed", "Eye Open"]
 
                 if MODEL_TYPE == "EEGNet":
-                    # EEGNet biasanya menggunakan Softmax (2 output) dan sparse_categorical_crossentropy
+                    # EEGNet pake softmax, langsung ambil dua output
                     prob = prediction[0] 
                 else:
-                    # LSTM/CNN biasanya menggunakan Sigmoid (1 output) dan binary_crossentropy
-                    # Output sigmoid adalah P(class 1). P(class 0) = 1 - P(class 1)
+                    # LSTM/CNN pake sigmoid, output 1 nilai. Hitung P(closed) dan P(open)
                     prob_open = float(prediction[0][0])
                     prob = [float(1 - prob_open), prob_open]
                 
                 prob = np.array(prob)
                 
-                # Mendapatkan kelas dengan probabilitas tertinggi
+                # Ambil kelas dengan probabilitas tertinggi
                 result = labels[int(np.argmax(prob))]
 
-                # =========================
-                # RESULT TEXT
-                # =========================
+                # Tampilkan hasil prediksi
                 st.subheader("Hasil Prediksi")
 
                 if result == "Eye Open":
@@ -312,30 +316,26 @@ with tab1:
                 else:
                     st.success(f"### Mata Tertutup")
 
-                # =========================
-                # NUMERIC RESULT
-                # =========================
+                # Tampilkan nilai probabilitas untuk setiap kelas
                 st.write("### Nilai Probabilitas")
                 st.write(f"🔹 **{labels[0]}** : **{prob[0]:.4f}**")
                 st.write(f"🔹 **{labels[1]}**  : **{prob[1]:.4f}**")
 
-                # =========================
-                # VISUALIZATION
-                # =========================
+                # Buat bar chart untuk visualisasi probabilitas
                 fig, ax = plt.subplots()
                 
-                # Urutkan dari tertinggi untuk visualisasi yang lebih baik
+                # Urutkan dari probabilitas tertinggi ke terendah
                 sorted_indices = np.argsort(prob)[::-1]
                 sorted_prob = prob[sorted_indices]
                 sorted_labels = np.array(labels)[sorted_indices]
 
-                bars = ax.bar(sorted_labels, sorted_prob, color=['#1f77b4', '#ff7f0e']) # Warna berbeda untuk Eye Open/Closed
+                bars = ax.bar(sorted_labels, sorted_prob, color=['#1f77b4', '#ff7f0e'])
 
                 ax.set_ylim(0, 1)
                 ax.set_ylabel("Probability")
                 ax.set_title(f"Confidence Prediction ({MODEL_TYPE})")
 
-                # Tambahkan label nilai di atas bar
+                # Tambah label nilai di atas setiap bar
                 for bar, p in zip(bars, sorted_prob):
                     ax.text(
                         bar.get_x() + bar.get_width() / 2,
@@ -346,18 +346,16 @@ with tab1:
                     )
 
                 st.pyplot(fig)
-                plt.close(fig) # Penting untuk membebaskan memori Matplotlib
+                plt.close(fig)
 
             except Exception as e:
-                # Memberikan pesan error yang lebih jelas di aplikasi Streamlit
+                # Tampilkan error detail untuk debugging
                 st.error("---")
                 st.error("❌ **TERJADI KESALAHAN SAAT PREDIKSI**")
                 st.code(f"Error Detail: {e}", language='python')
-                st.warning("Penyebab umum: Bentuk input yang dihasilkan fungsi `preprocess_eeg` tidak sesuai dengan lapisan pertama model. Coba cek ulang *input_shape* model Anda saat pelatihan.")
+                st.warning("Kemungkinan penyebab: Bentuk input tidak sesuai dengan input layer model. Cek ulang input_shape saat training model.")
 
-    # =========================
-    # FOOTER
-    # =========================
+    # Footer
     st.markdown("---")
     st.caption("EEG Eye State Classification | LSTM • CNN • EEGNet")
     st.caption("Teknik Informatika - Universitas Padjadjaran © 2025")

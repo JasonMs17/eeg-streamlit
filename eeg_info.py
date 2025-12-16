@@ -5,14 +5,12 @@ def show_eeg_info():
     
     st.header("Apa itu EEG (Electroencephalography)?")
     
-    # Definisi
     st.subheader("Definisi")
     st.markdown("""
     **EEG (Electroencephalography)** adalah teknik untuk merekam aktivitas listrik otak menggunakan elektroda yang ditempatkan 
     di permukaan kulit kepala. Aktivitas listrik ini berasal dari jutaan neuron yang berkomunikasi satu sama lain.
     """)
-    
-    # Bagaimana EEG Bekerja
+
     st.subheader("Bagaimana EEG Bekerja?")
     st.markdown("""
     1. **Penempatan Elektroda**: Elektroda non-invasif ditempatkan di berbagai posisi di kepala
@@ -21,7 +19,6 @@ def show_eeg_info():
     4. **Perekaman**: Data dikonversi menjadi sinyal digital untuk analisis lebih lanjut
     """)
     
-    # Standar 10-20 System
     st.subheader("Sistem Penempatan Standar 10-20")
     st.markdown("""
     Sistem 10-20 adalah standar internasional untuk menempatkan elektroda EEG:
@@ -35,12 +32,11 @@ def show_eeg_info():
     
     Angka ganjil (1,3,5,7) menunjukkan sisi **KIRI**, angka genap (2,4,6,8) menunjukkan sisi **KANAN**
     """)
-    # Gambar Brainwave
+
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.image("images/area.png", caption="Ilustrasi Channel pada Alat Emotiv EPOC", width='content')
     
-    # Frekuensi Band
     st.subheader("Frekuensi Band EEG")
     st.markdown("""
     | Band | Frekuensi | Keadaan | Deskripsi |
@@ -56,7 +52,6 @@ def show_eeg_info():
     with col2:
         st.image("images/brainwave.jpg", caption="Ilustrasi Gelombang EEG Berdasarkan Frekuensi", width='stretch')
     
-    # Eye State Detection
     st.subheader("Deteksi Kondisi Mata (Eye State)")
     st.markdown("""
     **Tujuan Aplikasi Ini:**
@@ -73,7 +68,6 @@ def show_eeg_info():
     - 128 sample per recording (~1 detik pada sampling rate 128 Hz)
     """)
     
-    # Model Machines Learning
     st.subheader("Model Machine Learning")
     st.markdown("""
     Aplikasi ini menggunakan 3 model deep learning:
