@@ -84,13 +84,12 @@ with tab1:
 
     model_choice = st.selectbox(
         "Model:",
-        ["LSTM", "CNN", "EEGNet"]
+        ["LSTM", "CNN"]
     )
 
     MODEL_MAP = {
         "LSTM": ("LSTM", "model/lstm.h5"),
-        "CNN": ("CNN", "model/cnn.h5"),
-        "EEGNet": ("EEGNet", "model/eegnet.h5")
+        "CNN": ("CNN", "model/cnn.h5")
     }
 
     MODEL_TYPE, MODEL_PATH = MODEL_MAP[model_choice]
@@ -102,8 +101,6 @@ with tab1:
         st.info("LSTM (Long Short-Term Memory) adalah model yang baik untuk data sekuensial seperti time series EEG. Model ini mampu mengingat pola jangka panjang dan cocok untuk menangkap sinyal otak yang kompleks.")
     elif model_choice == "CNN":
         st.info("CNN (Convolutional Neural Network) adalah model yang fokus pada fitur lokal dalam data EEG. Model ini cepat dalam pemrosesan dan computationally efficient, serta cocok untuk mendeteksi pola spasial dan temporal.")
-    elif model_choice == "EEGNet":
-        st.info("EEGNet adalah model khusus yang didesain untuk data EEG. Model ini menggabungkan keunggulan CNN dan filter yang dioptimalkan untuk EEG, sehingga lebih akurat dan efisien untuk klasifikasi sinyal otak.")
 
     # =========================
     # LOAD MODEL
@@ -166,13 +163,8 @@ with tab1:
         # data = (data - np.mean(data, axis=0)) / (np.std(data, axis=0) + 1e-6)
 
         # ===== FINAL SHAPE (BATCH SIZE = 1) =====
-        if model_type in ["LSTM", "CNN"]:
-            # Bentuk untuk LSTM/CNN 3D: (Batch, Timesteps, Channels) -> (1, 128, 14)
-            return data.reshape(1, target_len, target_ch)
-
-        elif model_type == "EEGNet":
-            # Bentuk untuk EEGNet 4D: (Batch, Channels, Timesteps, 1) -> (1, 14, 128, 1)
-            return data.T.reshape(1, target_ch, target_len, 1)
+        # Bentuk untuk LSTM/CNN 3D: (Batch, Timesteps, Channels) -> (1, 128, 14)
+        return data.reshape(1, target_len, target_ch)
 
     # =========================
     # CSV INPUT

@@ -18,8 +18,8 @@ def show_tutorial():
     Pada dropdown **"Model:"**, pilih salah satu opsi:
        - **LSTM**
        - **CNN**
-       - **EEGNet**
 
+    **Catatan:** Model EEGNet tidak dimasukkan karena hasil akurasi kurang memuaskan.
     """)
 
     # Langkah 2: Input Data
